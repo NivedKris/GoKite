@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { toMonthInput, fromMonthInput, monthRange } from '../utils/formatters';
 import { api } from '../utils/api';
+import { getFilterState, saveFilterState, saveCompanies } from '../utils/filterState';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MultiSelect dropdown component
@@ -30,8 +31,8 @@ function MultiSelect({ options, selected, onChange, placeholder }) {
     selected.length === 0
       ? placeholder
       : selected.length === options.length
-      ? `All Branches (${options.length})`
-      : `${selected.length} selected`;
+        ? `All Branches (${options.length})`
+        : `${selected.length} selected`;
 
   return (
     <div className="relative" ref={ref}>
@@ -86,9 +87,30 @@ function MultiSelect({ options, selected, onChange, placeholder }) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function FilterBar({ onApply }) {
   const now = new Date();
-  const [month, setMonth] = useState(toMonthInput(new Date(now.getFullYear(), now.getMonth() - 1, 1)));
+  const defaultMonth = toMonthInput(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  const persisted = getFilterState();
+  const [month, setMonth] = useState(persisted?.month ?? defaultMonth);
   const [companies, setCompanies] = useState([]);
-  const [companyIds, setCompanyIds] = useState([]);
+  const [companyIds, setCompanyIds] = useState(persisted?.companyIds ?? []);
+
+  // Persist month whenever it changes
+  useEffect(() => { saveFilterState({ month, companyIds }); }, [month, companyIds]);
+
+  // Keep a stable ref to onApply so the auto-fire effect doesn't need it as a dep
+  const onApplyRef = useRef(onApply);
+  useEffect(() => { onApplyRef.current = onApply; });
+  const didAutoApply = useRef(false);
+
+  // Auto-fire onApply once companies are loaded so the initial fetch uses all IDs
+  useEffect(() => {
+    if (companies.length > 0 && !didAutoApply.current) {
+      didAutoApply.current = true;
+      const d = fromMonthInput(month);
+      const { dateFrom, dateTo } = monthRange(d);
+      onApplyRef.current({ dateFrom, dateTo, companyIds: companies.map((c) => c.id) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companies]);
 
   // Load companies from API on mount
   useEffect(() => {
@@ -96,7 +118,11 @@ export default function FilterBar({ onApply }) {
       .then((res) => {
         const list = res.data ?? [];
         setCompanies(list);
-        setCompanyIds(list.map((c) => c.id));
+        saveCompanies(list);
+        // Only override companyIds if nothing was persisted
+        if (!getFilterState()?.companyIds?.length) {
+          setCompanyIds(list.map((c) => c.id));
+        }
       })
       .catch(() => {
         // Fallback to hardcoded list if API is unavailable
@@ -108,7 +134,10 @@ export default function FilterBar({ onApply }) {
           { id: 5, name: 'GoKite Abu Dhabi' },
         ];
         setCompanies(fallback);
-        setCompanyIds(fallback.map((c) => c.id));
+        saveCompanies(fallback);
+        if (!getFilterState()?.companyIds?.length) {
+          setCompanyIds(fallback.map((c) => c.id));
+        }
       });
   }, []);
 

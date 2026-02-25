@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import * as XLSX from 'xlsx';
 import { monthRange, fmtCurrency, fmtInt, fmtPct } from '../utils/formatters';
 import { api } from '../utils/api';
+import { buildB2CWorkbook } from '../utils/buildB2CWorkbook';
 import FilterBar from '../components/FilterBar';
+import { resolveCompanyNames } from '../utils/filterState';
 import KpiCard from '../components/KpiCard';
 import AccordionSection from '../components/AccordionSection';
 import LoadingOverlay from '../components/LoadingOverlay';
+import ExportButton from '../components/ExportButton';
 
 // Sections
 import DepartmentWiseReport from '../sections/DepartmentWiseReport';
@@ -48,7 +52,7 @@ function TargetProgress({ revenue, target }) {
     <div className="mt-auto">
       <div className="flex justify-between text-[11px] text-slate-500 mb-1">
         <span>{pct}% achieved</span>
-        <span>Target: {fmtCurrency(target)}</span>
+        <span>Achieved: {fmtCurrency(revenue)}</span>
       </div>
       <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
         <div className={`${color} h-full rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
@@ -68,7 +72,7 @@ export default function DashboardPage() {
   const [filters, setFilters] = useState({
     dateFrom: initialRange.dateFrom,
     dateTo: initialRange.dateTo,
-    companyIds: [1, 2, 3, 4, 5],
+    companyIds: [],
   });
 
   // KPI summary — start as loading so the overlay shows on first paint
@@ -88,8 +92,9 @@ export default function DashboardPage() {
   // Ref to skip re-fetch effect on first mount
   const isFirstRender = useRef(true);
 
-  // Load summary on filter change
+  // Load summary on filter change (skip until companies are ready)
   useEffect(() => {
+    if (filters.companyIds.length === 0) return;
     async function loadSummary() {
       setSummary({ data: null, loading: true, error: null });
       try {
@@ -110,16 +115,16 @@ export default function DashboardPage() {
       return;
     }
     const { dateFrom, dateTo, companyIds } = filters;
-    if (dept.loaded)        fetchDept(()        => api.departmentWise(dateFrom, dateTo, companyIds));
-    if (staff.loaded)       fetchStaff(()       => api.salesTeamStaff(dateFrom, dateTo, companyIds));
-    if (frontline.loaded)   fetchFrontline(()   => api.frontlineServiceCount(dateFrom, dateTo, companyIds));
-    if (prevMonth2.loaded)  fetchPrevMonth(()   => api.previousMonthComparison(dateFrom, dateTo, companyIds));
-    if (conversion.loaded)  fetchConversion(()  => api.conversionDetails(dateFrom, dateTo, companyIds));
-    if (review.loaded)      fetchReview(()      => api.totalReview(dateFrom, dateTo, companyIds));
+    if (dept.loaded) fetchDept(() => api.departmentWise(dateFrom, dateTo, companyIds));
+    if (staff.loaded) fetchStaff(() => api.salesTeamStaff(dateFrom, dateTo, companyIds));
+    if (frontline.loaded) fetchFrontline(() => api.frontlineServiceCount(dateFrom, dateTo, companyIds));
+    if (prevMonth2.loaded) fetchPrevMonth(() => api.previousMonthComparison(dateFrom, dateTo, companyIds));
+    if (conversion.loaded) fetchConversion(() => api.conversionDetails(dateFrom, dateTo, companyIds));
+    if (review.loaded) fetchReview(() => api.totalReview(dateFrom, dateTo, companyIds));
     if (outstanding.loaded) fetchOutstanding(() => api.outstanding(dateFrom, dateTo, companyIds));
-    if (absconding.loaded)  fetchAbsconding(()  => api.abscondingSource(dateFrom, dateTo, companyIds));
-    if (fine.loaded)        fetchFine(()        => api.fineCollection(dateFrom, dateTo, companyIds));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (absconding.loaded) fetchAbsconding(() => api.abscondingSource(dateFrom, dateTo, companyIds));
+    if (fine.loaded) fetchFine(() => api.fineCollection(dateFrom, dateTo, companyIds));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
   // ── Apply / Clear handler ────────────────────────────────────────────────
@@ -127,30 +132,66 @@ export default function DashboardPage() {
     setFilters(newFilters);
   }
 
+  // ── Export all sections to Excel ─────────────────────────────────────────
+  async function handleExport() {
+    const { dateFrom, dateTo, companyIds } = filters;
+    const [
+      summaryData, deptData, staffData, frontlineData,
+      prevMonthData, conversionData, reviewData,
+      outstandingData, abscondingData, fineData,
+    ] = await Promise.all([
+      api.summary(dateFrom, dateTo, companyIds),
+      api.departmentWise(dateFrom, dateTo, companyIds),
+      api.salesTeamStaff(dateFrom, dateTo, companyIds),
+      api.frontlineServiceCount(dateFrom, dateTo, companyIds),
+      api.previousMonthComparison(dateFrom, dateTo, companyIds),
+      api.conversionDetails(dateFrom, dateTo, companyIds),
+      api.totalReview(dateFrom, dateTo, companyIds),
+      api.outstanding(dateFrom, dateTo, companyIds),
+      api.abscondingSource(dateFrom, dateTo, companyIds),
+      api.fineCollection(dateFrom, dateTo, companyIds),
+    ]);
+    const wb = buildB2CWorkbook({
+      filters,
+      companyNames: resolveCompanyNames(filters.companyIds),
+      summary: summaryData,
+      dept: deptData,
+      staff: staffData,
+      frontline: frontlineData,
+      prevMonth: prevMonthData,
+      conversion: conversionData,
+      review: reviewData,
+      outstanding: outstandingData,
+      absconding: abscondingData,
+      fine: fineData,
+    });
+    XLSX.writeFile(wb, `B2C_Report_${dateFrom}_to_${dateTo}.xlsx`);
+  }
+
   const { dateFrom, dateTo, companyIds } = filters;
   const kpi = summary.data;
 
   // ── Section helpers ──────────────────────────────────────────────────────
-  const onOpenDept       = () => fetchDept(() => api.departmentWise(dateFrom, dateTo, companyIds));
-  const onOpenStaff      = () => fetchStaff(() => api.salesTeamStaff(dateFrom, dateTo, companyIds));
-  const onOpenFrontline  = () => fetchFrontline(() => api.frontlineServiceCount(dateFrom, dateTo, companyIds));
-  const onOpenPrevMonth  = () => fetchPrevMonth(() => api.previousMonthComparison(dateFrom, dateTo, companyIds));
+  const onOpenDept = () => fetchDept(() => api.departmentWise(dateFrom, dateTo, companyIds));
+  const onOpenStaff = () => fetchStaff(() => api.salesTeamStaff(dateFrom, dateTo, companyIds));
+  const onOpenFrontline = () => fetchFrontline(() => api.frontlineServiceCount(dateFrom, dateTo, companyIds));
+  const onOpenPrevMonth = () => fetchPrevMonth(() => api.previousMonthComparison(dateFrom, dateTo, companyIds));
   const onOpenConversion = () => fetchConversion(() => api.conversionDetails(dateFrom, dateTo, companyIds));
-  const onOpenReview     = () => fetchReview(() => api.totalReview(dateFrom, dateTo, companyIds));
-  const onOpenOutstanding= () => fetchOutstanding(() => api.outstanding(dateFrom, dateTo, companyIds));
+  const onOpenReview = () => fetchReview(() => api.totalReview(dateFrom, dateTo, companyIds));
+  const onOpenOutstanding = () => fetchOutstanding(() => api.outstanding(dateFrom, dateTo, companyIds));
   const onOpenAbsconding = () => fetchAbsconding(() => api.abscondingSource(dateFrom, dateTo, companyIds));
-  const onOpenFine       = () => fetchFine(() => api.fineCollection(dateFrom, dateTo, companyIds));
+  const onOpenFine = () => fetchFine(() => api.fineCollection(dateFrom, dateTo, companyIds));
 
   return (
     <div className="min-h-screen bg-[#f6f7f8] font-display">
       <LoadingOverlay visible={summary.loading} />
-      <main className="max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 space-y-6">
+      <main className="w-full px-4 sm:px-8 py-6 space-y-6">
 
         {/* ── Page Header ───────────────────────────────────────────────── */}
         <div>
           <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">
             <span>GoKite</span>
-            <svg viewBox="0 0 24 24" className="w-3 h-3 fill-current"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+            <svg viewBox="0 0 24 24" className="w-3 h-3 fill-current"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" /></svg>
             <span className="text-slate-700">Monthly Retail Summary</span>
           </div>
           <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -162,13 +203,16 @@ export default function DashboardPage() {
                 Performance overview for the selected month and companies
               </p>
             </div>
-            <Link
-              to="/b2b"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-lg hover:bg-slate-50 hover:border-primary hover:text-primary transition-colors shadow-sm whitespace-nowrap"
-            >
-              Switch to B2B
-              <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current"><path d="M4 11h12.17l-5.59-5.59L12 4l8 8-8 8-1.41-1.41L16.17 13H4v-2z"/></svg>
-            </Link>
+            <div className="flex items-center gap-2 flex-wrap">
+              <ExportButton onExport={handleExport} />
+              <Link
+                to="/b2b"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-lg hover:bg-slate-50 hover:border-primary hover:text-primary transition-colors shadow-sm whitespace-nowrap"
+              >
+                Switch to B2B
+                <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current"><path d="M4 11h12.17l-5.59-5.59L12 4l8 8-8 8-1.41-1.41L16.17 13H4v-2z" /></svg>
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -182,8 +226,8 @@ export default function DashboardPage() {
             icon="payments"
             value={
               summary.loading ? <span className="text-slate-300 animate-pulse">Loading…</span>
-              : kpi ? fmtCurrency(kpi.total_sales_amount)
-              : '—'
+                : kpi ? fmtCurrency(kpi.total_sales_amount)
+                  : '—'
             }
           />
           <KpiCard
@@ -191,8 +235,8 @@ export default function DashboardPage() {
             icon="conversion"
             value={
               summary.loading ? <span className="text-slate-300 animate-pulse">Loading…</span>
-              : kpi ? fmtPct(kpi.conversion_percentage)
-              : '—'
+                : kpi ? fmtPct(kpi.conversion_percentage)
+                  : '—'
             }
           />
           <KpiCard
@@ -200,8 +244,8 @@ export default function DashboardPage() {
             icon="revenue"
             value={
               summary.loading ? <span className="text-slate-300 animate-pulse">Loading…</span>
-              : kpi ? fmtCurrency(kpi.total_revenue)
-              : '—'
+                : kpi ? fmtCurrency(kpi.total_revenue)
+                  : '—'
             }
           />
           <KpiCard
@@ -209,8 +253,8 @@ export default function DashboardPage() {
             icon="reviews"
             value={
               summary.loading ? <span className="text-slate-300 animate-pulse">Loading…</span>
-              : kpi ? fmtInt(kpi.total_review_count)
-              : '—'
+                : kpi ? fmtInt(kpi.total_review_count)
+                  : '—'
             }
           />
           <KpiCard
@@ -218,8 +262,8 @@ export default function DashboardPage() {
             icon="target"
             value={
               summary.loading ? <span className="text-slate-300 animate-pulse">Loading…</span>
-              : kpi ? fmtCurrency(kpi.total_revenue)
-              : '—'
+                : kpi ? fmtCurrency(kpi.total_revenue_target)
+                  : '—'
             }
             subContent={
               kpi ? (

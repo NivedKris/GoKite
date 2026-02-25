@@ -15,7 +15,7 @@ export default function KpiCard({ label, value, icon = 'payments', trend, subCon
   const trendDown = trend && String(trend).startsWith('-');
 
   return (
-    <div className="bg-white p-5 rounded-xl border border-slate-200 stripe-shadow flex flex-col gap-2">
+    <div className="bg-white p-5 rounded-xl border border-slate-200 stripe-shadow flex flex-col gap-2 overflow-hidden">
       <div className="flex justify-between items-start">
         <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight">{label}</p>
         <span className="text-primary/70">
@@ -25,7 +25,7 @@ export default function KpiCard({ label, value, icon = 'payments', trend, subCon
         </span>
       </div>
 
-      <h3 className="text-2xl font-extrabold tabular-nums text-slate-900 leading-none">{value ?? '—'}</h3>
+      <h3 className="text-xl font-extrabold tabular-nums text-slate-900 leading-tight">{value ?? '—'}</h3>
 
       {trend && (
         <div

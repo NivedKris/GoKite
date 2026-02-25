@@ -37,7 +37,7 @@ const base = (dateFrom, dateTo, companyIds) => ({
 
 export const b2bApi = {
   /** API #0 – company list for filter dropdown */
-  companies: () => apiFetch(`${B2B}/companies`),
+  companies: () => apiFetch(`/api/dashboard/companies`),
 
   /** API #1 – top-level KPI summary */
   summary: (dateFrom, dateTo, companyIds) =>

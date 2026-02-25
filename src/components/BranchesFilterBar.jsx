@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { toMonthInput, fromMonthInput, monthRange } from '../utils/formatters';
-import { b2bApi } from '../utils/b2bApi';
+import { branchesApi } from '../utils/branchesApi';
 import { getFilterState, saveFilterState, saveCompanies } from '../utils/filterState';
 
 // ─── Shared MultiSelect ────────────────────────────────────────────────────
@@ -19,12 +19,12 @@ function MultiSelect({ options, selected, onChange, placeholder }) {
   const toggle = (id) =>
     onChange(selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]);
 
-  const allSelected = selected.length === options.length;
+  const allSelected = selected.length === options.length && options.length > 0;
   const label =
     selected.length === 0
       ? placeholder
       : selected.length === options.length
-        ? `All Companies (${options.length})`
+        ? `All Branches (${options.length})`
         : `${selected.length} selected`;
 
   return (
@@ -64,7 +64,12 @@ function MultiSelect({ options, selected, onChange, placeholder }) {
                 onChange={() => toggle(opt.id)}
                 className="rounded text-primary focus:ring-primary"
               />
-              {opt.name}
+              <span>{opt.name}</span>
+              {opt.code && (
+                <span className="ml-auto text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
+                  {opt.code}
+                </span>
+              )}
             </label>
           ))}
         </div>
@@ -73,8 +78,8 @@ function MultiSelect({ options, selected, onChange, placeholder }) {
   );
 }
 
-// ─── B2B FilterBar ──────────────────────────────────────────────────────────
-export default function B2BFilterBar({ onApply }) {
+// ─── Branches FilterBar ─────────────────────────────────────────────────────
+export default function BranchesFilterBar({ onApply }) {
   const now = new Date();
   const defaultMonth = toMonthInput(new Date(now.getFullYear(), now.getMonth() - 1, 1));
   const persisted = getFilterState();
@@ -85,12 +90,12 @@ export default function B2BFilterBar({ onApply }) {
   // Persist filter state whenever month or companyIds change
   useEffect(() => { saveFilterState({ month, companyIds }); }, [month, companyIds]);
 
-  // Keep a stable ref to onApply so the auto-fire effect doesn't need it as a dep
+  // Keep a stable ref to onApply so auto-fire effect doesn't need it as a dep
   const onApplyRef = useRef(onApply);
   useEffect(() => { onApplyRef.current = onApply; });
   const didAutoApply = useRef(false);
 
-  // Auto-fire onApply once companies are loaded so the initial fetch uses all IDs
+  // Auto-fire onApply once companies are loaded
   useEffect(() => {
     if (companies.length > 0 && !didAutoApply.current) {
       didAutoApply.current = true;
@@ -102,20 +107,23 @@ export default function B2BFilterBar({ onApply }) {
   }, [companies]);
 
   useEffect(() => {
-    b2bApi
+    branchesApi
       .companies()
       .then((res) => {
-        // Same format as B2C: { data: [{id, name, ...}] }
-        const list = res.data ?? [];
+        // branches API returns { companies: [...], mapping: {}, total_companies: N }
+        const list = (res.companies ?? []).map((c) => ({
+          id: c.id,
+          name: c.name,
+          code: c.code,
+          location: c.location,
+        }));
         setCompanies(list);
         saveCompanies(list);
-        // Only override companyIds if nothing was persisted
         if (!getFilterState()?.companyIds?.length) {
           setCompanyIds(list.map((c) => c.id));
         }
       })
       .catch(() => {
-        // Fallback if API is unavailable
         setCompanies([]);
         if (!getFilterState()?.companyIds?.length) {
           setCompanyIds([]);
@@ -152,13 +160,13 @@ export default function B2BFilterBar({ onApply }) {
 
         <div className="flex flex-col gap-1 flex-1 min-w-[200px] max-w-xs">
           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide px-0.5">
-            Companies
+            Branches
           </label>
           <MultiSelect
             options={companies}
             selected={companyIds}
             onChange={setCompanyIds}
-            placeholder="Select companies…"
+            placeholder="Select branches…"
           />
         </div>
 

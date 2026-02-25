@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { monthRange, fmtCurrency, fmtInt } from '../utils/formatters';
+import * as XLSX from 'xlsx';
 import { b2bApi } from '../utils/b2bApi';
+import { buildB2BWorkbook } from '../utils/buildB2BWorkbook';
 import B2BFilterBar from '../components/B2BFilterBar';
 import KpiCard from '../components/KpiCard';
 import AccordionSection from '../components/AccordionSection';
 import LoadingOverlay from '../components/LoadingOverlay';
 import { Link } from 'react-router-dom';
+import ExportButton from '../components/ExportButton';
+import { resolveCompanyNames } from '../utils/filterState';
 
 // Sections
 import B2BDeptProductsReport from '../b2b-sections/B2BDeptProductsReport';
@@ -46,27 +50,28 @@ export default function B2BDashboardPage() {
   const [filters, setFilters] = useState({
     dateFrom: initialRange.dateFrom,
     dateTo: initialRange.dateTo,
-    companyIds: [1, 2, 3, 4, 5],
+    companyIds: [],
   });
 
   const [summary, setSummary] = useState({ data: null, loading: true, error: null });
 
-  const [deptProducts, fetchDeptProducts]         = useSectionState();
-  const [individual, fetchIndividual]             = useSectionState();
-  const [teamWise, fetchTeamWise]                 = useSectionState();
-  const [visaSplit, fetchVisaSplit]               = useSectionState();
-  const [a2aSplit, fetchA2ASplit]                 = useSectionState();
-  const [serviceReport, fetchServiceReport]       = useSectionState();
-  const [agencyReport, fetchAgencyReport]         = useSectionState();
-  const [fundCollection, fetchFundCollection]     = useSectionState();
+  const [deptProducts, fetchDeptProducts] = useSectionState();
+  const [individual, fetchIndividual] = useSectionState();
+  const [teamWise, fetchTeamWise] = useSectionState();
+  const [visaSplit, fetchVisaSplit] = useSectionState();
+  const [a2aSplit, fetchA2ASplit] = useSectionState();
+  const [serviceReport, fetchServiceReport] = useSectionState();
+  const [agencyReport, fetchAgencyReport] = useSectionState();
+  const [fundCollection, fetchFundCollection] = useSectionState();
   const [agencyConversion, fetchAgencyConversion] = useSectionState();
-  const [absconding, fetchAbsconding]             = useSectionState();
-  const [fine, fetchFine]                         = useSectionState();
+  const [absconding, fetchAbsconding] = useSectionState();
+  const [fine, fetchFine] = useSectionState();
 
   const isFirstRender = useRef(true);
 
-  // Load summary on filter change
+  // Load summary on filter change (skip until companies are ready)
   useEffect(() => {
+    if (filters.companyIds.length === 0) return;
     async function loadSummary() {
       setSummary({ data: null, loading: true, error: null });
       try {
@@ -83,47 +88,87 @@ export default function B2BDashboardPage() {
   useEffect(() => {
     if (isFirstRender.current) { isFirstRender.current = false; return; }
     const { dateFrom, dateTo, companyIds } = filters;
-    if (deptProducts.loaded)    fetchDeptProducts(()    => b2bApi.departmentProducts(dateFrom, dateTo, companyIds));
-    if (individual.loaded)      fetchIndividual(()      => b2bApi.individualDetails(dateFrom, dateTo, companyIds));
-    if (teamWise.loaded)        fetchTeamWise(()        => b2bApi.teamWise(dateFrom, dateTo, companyIds));
-    if (visaSplit.loaded)       fetchVisaSplit(()       => b2bApi.visaSplitUp(dateFrom, dateTo, companyIds));
-    if (a2aSplit.loaded)        fetchA2ASplit(()        => b2bApi.a2aSplitUp(dateFrom, dateTo, companyIds));
-    if (serviceReport.loaded)   fetchServiceReport(()   => b2bApi.serviceReport(dateFrom, dateTo, companyIds));
-    if (agencyReport.loaded)    fetchAgencyReport(()    => b2bApi.agencyReport(dateFrom, dateTo, companyIds));
-    if (fundCollection.loaded)  fetchFundCollection(()  => b2bApi.fundCollection(dateFrom, dateTo, companyIds));
-    if (agencyConversion.loaded)fetchAgencyConversion(()=> b2bApi.agencyConversion(dateFrom, dateTo, companyIds));
-    if (absconding.loaded)      fetchAbsconding(()      => b2bApi.abscondingSource(dateFrom, dateTo, companyIds));
-    if (fine.loaded)            fetchFine(()            => b2bApi.fineSource(dateFrom, dateTo, companyIds));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (deptProducts.loaded) fetchDeptProducts(() => b2bApi.departmentProducts(dateFrom, dateTo, companyIds));
+    if (individual.loaded) fetchIndividual(() => b2bApi.individualDetails(dateFrom, dateTo, companyIds));
+    if (teamWise.loaded) fetchTeamWise(() => b2bApi.teamWise(dateFrom, dateTo, companyIds));
+    if (visaSplit.loaded) fetchVisaSplit(() => b2bApi.visaSplitUp(dateFrom, dateTo, companyIds));
+    if (a2aSplit.loaded) fetchA2ASplit(() => b2bApi.a2aSplitUp(dateFrom, dateTo, companyIds));
+    if (serviceReport.loaded) fetchServiceReport(() => b2bApi.serviceReport(dateFrom, dateTo, companyIds));
+    if (agencyReport.loaded) fetchAgencyReport(() => b2bApi.agencyReport(dateFrom, dateTo, companyIds));
+    if (fundCollection.loaded) fetchFundCollection(() => b2bApi.fundCollection(dateFrom, dateTo, companyIds));
+    if (agencyConversion.loaded) fetchAgencyConversion(() => b2bApi.agencyConversion(dateFrom, dateTo, companyIds));
+    if (absconding.loaded) fetchAbsconding(() => b2bApi.abscondingSource(dateFrom, dateTo, companyIds));
+    if (fine.loaded) fetchFine(() => b2bApi.fineSource(dateFrom, dateTo, companyIds));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
   function handleApply(newFilters) { setFilters(newFilters); }
 
+  // ── Export all sections to Excel ─────────────────────────────────────────
+  async function handleExport() {
+    const { dateFrom, dateTo, companyIds } = filters;
+    const [
+      summaryData, deptProductsData, individualData, teamWiseData,
+      visaSplitData, a2aSplitData, serviceReportData, agencyReportData,
+      fundCollectionData, agencyConversionData, abscondingData, fineData,
+    ] = await Promise.all([
+      b2bApi.summary(dateFrom, dateTo, companyIds),
+      b2bApi.departmentProducts(dateFrom, dateTo, companyIds),
+      b2bApi.individualDetails(dateFrom, dateTo, companyIds),
+      b2bApi.teamWise(dateFrom, dateTo, companyIds),
+      b2bApi.visaSplitUp(dateFrom, dateTo, companyIds),
+      b2bApi.a2aSplitUp(dateFrom, dateTo, companyIds),
+      b2bApi.serviceReport(dateFrom, dateTo, companyIds),
+      b2bApi.agencyReport(dateFrom, dateTo, companyIds),
+      b2bApi.fundCollection(dateFrom, dateTo, companyIds),
+      b2bApi.agencyConversion(dateFrom, dateTo, companyIds),
+      b2bApi.abscondingSource(dateFrom, dateTo, companyIds),
+      b2bApi.fineSource(dateFrom, dateTo, companyIds),
+    ]);
+    const wb = buildB2BWorkbook({
+      filters,
+      companyNames: resolveCompanyNames(filters.companyIds),
+      summary: summaryData,
+      deptProducts: deptProductsData,
+      individual: individualData,
+      teamWise: teamWiseData,
+      visaSplit: visaSplitData,
+      a2aSplit: a2aSplitData,
+      serviceReport: serviceReportData,
+      agencyReport: agencyReportData,
+      fundCollection: fundCollectionData,
+      agencyConversion: agencyConversionData,
+      absconding: abscondingData,
+      fine: fineData,
+    });
+    XLSX.writeFile(wb, `B2B_Report_${dateFrom}_to_${dateTo}.xlsx`);
+  }
+
   const { dateFrom, dateTo, companyIds } = filters;
   const kpi = summary.data;
 
-  const onOpenDeptProducts    = () => fetchDeptProducts(()    => b2bApi.departmentProducts(dateFrom, dateTo, companyIds));
-  const onOpenIndividual      = () => fetchIndividual(()      => b2bApi.individualDetails(dateFrom, dateTo, companyIds));
-  const onOpenTeamWise        = () => fetchTeamWise(()        => b2bApi.teamWise(dateFrom, dateTo, companyIds));
-  const onOpenVisaSplit       = () => fetchVisaSplit(()       => b2bApi.visaSplitUp(dateFrom, dateTo, companyIds));
-  const onOpenA2ASplit        = () => fetchA2ASplit(()        => b2bApi.a2aSplitUp(dateFrom, dateTo, companyIds));
-  const onOpenServiceReport   = () => fetchServiceReport(()   => b2bApi.serviceReport(dateFrom, dateTo, companyIds));
-  const onOpenAgencyReport    = () => fetchAgencyReport(()    => b2bApi.agencyReport(dateFrom, dateTo, companyIds));
-  const onOpenFundCollection  = () => fetchFundCollection(()  => b2bApi.fundCollection(dateFrom, dateTo, companyIds));
-  const onOpenAgencyConversion= () => fetchAgencyConversion(()=> b2bApi.agencyConversion(dateFrom, dateTo, companyIds));
-  const onOpenAbsconding      = () => fetchAbsconding(()      => b2bApi.abscondingSource(dateFrom, dateTo, companyIds));
-  const onOpenFine            = () => fetchFine(()            => b2bApi.fineSource(dateFrom, dateTo, companyIds));
+  const onOpenDeptProducts = () => fetchDeptProducts(() => b2bApi.departmentProducts(dateFrom, dateTo, companyIds));
+  const onOpenIndividual = () => fetchIndividual(() => b2bApi.individualDetails(dateFrom, dateTo, companyIds));
+  const onOpenTeamWise = () => fetchTeamWise(() => b2bApi.teamWise(dateFrom, dateTo, companyIds));
+  const onOpenVisaSplit = () => fetchVisaSplit(() => b2bApi.visaSplitUp(dateFrom, dateTo, companyIds));
+  const onOpenA2ASplit = () => fetchA2ASplit(() => b2bApi.a2aSplitUp(dateFrom, dateTo, companyIds));
+  const onOpenServiceReport = () => fetchServiceReport(() => b2bApi.serviceReport(dateFrom, dateTo, companyIds));
+  const onOpenAgencyReport = () => fetchAgencyReport(() => b2bApi.agencyReport(dateFrom, dateTo, companyIds));
+  const onOpenFundCollection = () => fetchFundCollection(() => b2bApi.fundCollection(dateFrom, dateTo, companyIds));
+  const onOpenAgencyConversion = () => fetchAgencyConversion(() => b2bApi.agencyConversion(dateFrom, dateTo, companyIds));
+  const onOpenAbsconding = () => fetchAbsconding(() => b2bApi.abscondingSource(dateFrom, dateTo, companyIds));
+  const onOpenFine = () => fetchFine(() => b2bApi.fineSource(dateFrom, dateTo, companyIds));
 
   return (
     <div className="min-h-screen bg-[#f6f7f8] font-display">
       <LoadingOverlay visible={summary.loading} />
-      <main className="max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 space-y-6">
+      <main className="w-full px-4 sm:px-8 py-6 space-y-6">
 
         {/* ── Page Header ─────────────────────────────────────────────── */}
         <div>
           <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">
             <span>GoKite</span>
-            <svg viewBox="0 0 24 24" className="w-3 h-3 fill-current"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+            <svg viewBox="0 0 24 24" className="w-3 h-3 fill-current"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" /></svg>
             <span className="text-slate-700">Monthly B2B Summary</span>
           </div>
           <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -136,13 +181,16 @@ export default function B2BDashboardPage() {
               </p>
             </div>
             {/* ── Switch to B2C ── */}
-            <Link
-              to="/b2c"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-lg hover:bg-slate-50 hover:border-primary hover:text-primary transition-colors shadow-sm whitespace-nowrap"
-            >
-              <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-              Switch to B2C
-            </Link>
+            <div className="flex items-center gap-2 flex-wrap">
+              <ExportButton onExport={handleExport} />
+              <Link
+                to="/b2c"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-lg hover:bg-slate-50 hover:border-primary hover:text-primary transition-colors shadow-sm whitespace-nowrap"
+              >
+                <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" /></svg>
+                Switch to B2C
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -156,7 +204,7 @@ export default function B2BDashboardPage() {
             icon="conversion"
             value={
               summary.loading ? <span className="text-slate-300 animate-pulse">Loading…</span>
-              : kpi ? fmtInt(kpi.number_of_app_visa) : '—'
+                : kpi ? fmtInt(kpi.number_of_app_visa) : '—'
             }
           />
           <KpiCard
@@ -164,7 +212,7 @@ export default function B2BDashboardPage() {
             icon="reviews"
             value={
               summary.loading ? <span className="text-slate-300 animate-pulse">Loading…</span>
-              : kpi ? fmtInt(kpi.total_absconding_count) : '—'
+                : kpi ? fmtInt(kpi.total_absconding_count) : '—'
             }
           />
           <KpiCard
@@ -172,7 +220,7 @@ export default function B2BDashboardPage() {
             icon="payments"
             value={
               summary.loading ? <span className="text-slate-300 animate-pulse">Loading…</span>
-              : kpi ? fmtCurrency(kpi.absconding_collection_amount) : '—'
+                : kpi ? fmtCurrency(kpi.absconding_collection_amount) : '—'
             }
           />
           <KpiCard
@@ -180,7 +228,7 @@ export default function B2BDashboardPage() {
             icon="revenue"
             value={
               summary.loading ? <span className="text-slate-300 animate-pulse">Loading…</span>
-              : kpi ? fmtInt(kpi.active_agency_count) : '—'
+                : kpi ? fmtInt(kpi.active_agency_count) : '—'
             }
           />
           <KpiCard
@@ -188,7 +236,7 @@ export default function B2BDashboardPage() {
             icon="target"
             value={
               summary.loading ? <span className="text-slate-300 animate-pulse">Loading…</span>
-              : kpi ? fmtInt(kpi.total_a2a_count) : '—'
+                : kpi ? fmtInt(kpi.total_a2a_count) : '—'
             }
           />
         </div>
