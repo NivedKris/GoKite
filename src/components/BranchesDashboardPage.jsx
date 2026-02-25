@@ -232,6 +232,7 @@ export default function BranchesDashboardPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
           <KpiCard
             label="Total Sales"
+            variant="compact"
             icon="payments"
             value={
               summary.loading ? <span className="text-slate-300 animate-pulse">Loading…</span>
@@ -239,6 +240,7 @@ export default function BranchesDashboardPage() {
             }
           />
           <KpiCard
+            variant="compact"
             label="Conversion %"
             icon="conversion"
             value={
@@ -247,6 +249,7 @@ export default function BranchesDashboardPage() {
             }
           />
           <KpiCard
+            variant="compact"
             label="Total Revenue"
             icon="revenue"
             value={
@@ -255,6 +258,7 @@ export default function BranchesDashboardPage() {
             }
           />
           <KpiCard
+            variant="compact"
             label="Total Sales Count"
             icon="reviews"
             value={
@@ -263,6 +267,7 @@ export default function BranchesDashboardPage() {
             }
           />
           <KpiCard
+            variant="compact"
             label="Total Reviews"
             icon="reviews"
             value={
@@ -271,6 +276,7 @@ export default function BranchesDashboardPage() {
             }
           />
           <KpiCard
+            variant="compact"
             label="Active Agencies"
             icon="target"
             value={
@@ -279,6 +285,7 @@ export default function BranchesDashboardPage() {
             }
           />
           <KpiCard
+            variant="compact"
             label="Visa Applications"
             icon="conversion"
             value={

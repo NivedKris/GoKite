@@ -10,14 +10,19 @@ const ICONS = {
   target:          'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13v6l5 3-1 1.73-6-3.73V7h2z',
 };
 
-export default function KpiCard({ label, value, icon = 'payments', trend, subContent }) {
+export default function KpiCard({ label, value, icon = 'payments', trend, subContent, variant = 'default' }) {
   const trendUp = trend && String(trend).startsWith('+');
   const trendDown = trend && String(trend).startsWith('-');
+  const compact = variant === 'compact';
+
+  const containerClass = `bg-white p-5 rounded-xl border border-slate-200 stripe-shadow flex flex-col gap-2 overflow-hidden ${compact ? 'min-h-[120px]' : 'min-h-[140px]'}`;
+  const labelClass = 'text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight';
+  const valueClass = `${compact ? 'text-xl' : 'text-2xl'} font-extrabold tabular-nums text-slate-900 leading-tight break-words`;
 
   return (
-    <div className="bg-white p-5 rounded-xl border border-slate-200 stripe-shadow flex flex-col gap-2 overflow-hidden">
+    <div className={containerClass}>
       <div className="flex justify-between items-start">
-        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight">{label}</p>
+        <p className={labelClass}>{label}</p>
         <span className="text-primary/70">
           <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
             <path d={ICONS[icon] || ICONS.payments} />
@@ -25,7 +30,7 @@ export default function KpiCard({ label, value, icon = 'payments', trend, subCon
         </span>
       </div>
 
-      <h3 className="text-xl font-extrabold tabular-nums text-slate-900 leading-tight">{value ?? '—'}</h3>
+      <h3 className={valueClass}>{value ?? '—'}</h3>
 
       {trend && (
         <div
